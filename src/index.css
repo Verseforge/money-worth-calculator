@@ -2,6 +2,7 @@
 body { margin: 0; background: #f9fafb; color: #18181b; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
 button, input { font: inherit; }
 button { cursor: pointer; border: 0; }
+button:disabled { cursor: not-allowed; opacity: .65; }
 .page { width: min(760px, 100%); margin: 0 auto; padding: 20px 16px 32px; display: grid; gap: 16px; }
 .card { background: #fff; border: 1px solid #f1f1f1; border-radius: 32px; padding: 18px; box-shadow: 0 1px 5px rgba(0,0,0,.035); }
 .hero { padding: 24px; }
@@ -15,6 +16,9 @@ h2, h3, p { margin: 0; }
 .moneyInput input { width: 100%; border: 0; outline: 0; background: transparent; font-size: 34px; font-weight: 800; }
 .budgetInput input { width: 100%; border: 0; outline: 0; background: transparent; font-size: 20px; font-weight: 800; }
 .moneyInput span, .budgetInput span { color: #71717a; font-weight: 700; }
+.convertTip { margin-top: 10px !important; color: #71717a; font-size: 12px !important; line-height: 1.65 !important; }
+.convertAction { margin-top: 12px; background: #18181b; color: #fff; font-size: 14px; }
+.pendingTip { margin-top: 10px !important; padding: 9px 12px; background: #fafafa; border-radius: 14px; color: #71717a; font-size: 12px !important; line-height: 1.6 !important; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .row b { display: flex; align-items: center; gap: 7px; }
 .wrap { flex-wrap: wrap; }
@@ -69,3 +73,9 @@ h2, h3, p { margin: 0; }
 .form label span { display: block; color: #71717a; font-size: 12px; font-weight: 700; margin-bottom: 6px; }
 .form input { width: 100%; border: 1px solid #e4e4e7; border-radius: 16px; padding: 10px 12px; outline: 0; }
 .categoryPicker { background: #fafafa; border-radius: 20px; padding: 8px; }
+.calculatingOverlay { position: fixed; inset: 0; z-index: 120; background: rgba(24,24,27,.3); display: flex; align-items: center; justify-content: center; padding: 20px; touch-action: none; overscroll-behavior: none; }
+.calculatingDialog { width: min(280px, calc(100vw - 48px)); min-height: 156px; padding: 28px 20px 22px; background: #fff; border-radius: 28px; box-shadow: 0 12px 36px rgba(0,0,0,.14); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; }
+.calculatingDialog b { font-size: 16px; }
+.calculatingDialog p { color: #71717a; font-size: 12px; line-height: 1.6; }
+.spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid #e4e4e7; border-top-color: #18181b; animation: spinning .8s linear infinite; }
+@keyframes spinning { to { transform: rotate(360deg); } }
