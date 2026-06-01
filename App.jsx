@@ -43,6 +43,13 @@ const DEFAULT_ITEMS = [
 
 const cnMoney = (n) => !Number.isFinite(n) ? '0' : Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1).replace(/\.0$/, '')
 const cleanNumber = (v) => String(v).replace(/[^0-9.]/g, '')
+const MAX_AMOUNT = 99999
+const cleanAmountInput = (v) => {
+  const clean = cleanNumber(v)
+  if (!clean) return ''
+  const amount = Number(clean)
+  return amount > MAX_AMOUNT ? String(MAX_AMOUNT) : clean
+}
 function getPriceRange(price) { return PRICE_CATEGORIES.find(c => c.id !== 'all' && (c.includeMin ? price >= c.min : price > c.min) && price < c.max)?.id || 'tenThousands' }
 function isInPriceCategory(item, id) { return id === 'all' || getPriceRange(item.price) === id }
 function seededRandom(seed) { let v = seed % 2147483647; if (v <= 0) v += 2147483646; return () => ((v = v * 16807 % 2147483647) - 1) / 2147483646 }
@@ -143,6 +150,8 @@ function makeSummary({ amount, tone, mode, singleResults, combo, budgetResult })
 export default function App() {
   const topRef = useRef(null), resultRef = useRef(null)
   const [amountText, setAmountText] = useState('')
+  const [calculatedAmountText, setCalculatedAmountText] = useState('')
+  const [isCalculating, setIsCalculating] = useState(false)
   const [mode, setMode] = useState('single')
   const [categoryMode, setCategoryMode] = useState('type')
   const [activeType, setActiveType] = useState('all')
@@ -160,8 +169,13 @@ export default function App() {
 
   useEffect(() => { try { const s = JSON.parse(localStorage.getItem(STORAGE_KEY)); if (s?.items) setItems(s.items); if (s?.budget) setBudget(s.budget) } catch {} }, [])
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify({ items, budget })) }, [items, budget])
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    if (isCalculating) document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [isCalculating])
 
-  const amount = Number(amountText)
+  const amount = Number(calculatedAmountText)
   const filteredItems = useMemo(() => {
     let list = [...items]
     if (categoryMode === 'type') list = activeType === 'all' ? list : list.filter(i => i.category === activeType)
@@ -177,11 +191,59 @@ export default function App() {
   const summary = makeSummary({ amount, tone, mode, singleResults: singleDisplayResults, combo, budgetResult })
 
   const updateItem = (id, patch) => setItems(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i))
-  const selectVisible = (value) => { const ids = new Set(filteredItems.map(i=>i.id)); setItems(prev => prev.map(i => ids.has(i.id) ? { ...i, selected: value } : i)) }
+  const runWithLoading = (action) => {
+    setIsCalculating(true)
+    window.setTimeout(() => {
+      action()
+      window.setTimeout(() => setIsCalculating(false), 1000)
+    }, 40)
+  }
+  const runIfComboNeedsLoading = (action) => {
+    if (mode === 'combo' && amount > 0) runWithLoading(action)
+    else action()
+  }
+  const startConversion = () => {
+    const next = cleanAmountInput(amountText)
+    if (!next || Number(next) <= 0) {
+      setCalculatedAmountText('')
+      return
+    }
+    setAmountText(next)
+    runWithLoading(() => setCalculatedAmountText(next))
+  }
+  const changeMode = (nextMode) => {
+    if (nextMode === mode) return
+    if (nextMode === 'combo' && amount > 0) runWithLoading(() => setMode(nextMode))
+    else setMode(nextMode)
+  }
+  const changeComboSize = (nextSize) => {
+    const action = () => { setComboSize(nextSize); setComboSeed(s => s + 1) }
+    if (amount > 0) runWithLoading(action)
+    else action()
+  }
+  const refreshResults = () => {
+    if (mode === 'combo' && amount > 0) runWithLoading(() => setComboSeed(s => s + 1))
+    else setSingleSeed(s => s + 1)
+  }
+  const selectVisible = (value) => {
+    const action = () => { const ids = new Set(filteredItems.map(i=>i.id)); setItems(prev => prev.map(i => ids.has(i.id) ? { ...i, selected: value } : i)) }
+    runIfComboNeedsLoading(action)
+  }
+  const toggleItem = (item) => runIfComboNeedsLoading(() => updateItem(item.id, { selected: !item.selected }))
   const openEdit = (item) => { setEditing(item.id); setDraft({ ...item }) }
   const addItem = () => { setEditing('new'); setDraft({ emoji:'🏷️', name:'自定义标签', price:15, unit:'份', category: categoryMode === 'type' && activeType !== 'all' ? activeType : 'other', selected:true }) }
-  const saveDraft = () => { const price = Number(draft.price); if (!draft.name || !price) return; if (editing === 'new') setItems(prev => [...prev, { ...draft, id:`custom-${Date.now()}`, price }]); else updateItem(editing, { ...draft, price }); setEditing(null); setDraft(null) }
-  const resetAll = () => { setAmountText(''); setMode('single'); setCategoryMode('type'); setActiveType('all'); setActivePrice('all'); setTone('rational'); setItems(DEFAULT_ITEMS); setBudget({ enabled:false, type:'living', amounts:{ living:'2000', salary:'6000', savings:'10000' }}); setComboSize('random'); setComboSeed(7); setSingleSeed(11); setShowAllItems(false); setTypeSortDesc(false); localStorage.removeItem(STORAGE_KEY) }
+  const saveDraft = () => {
+    const price = Number(draft.price)
+    if (!draft.name || !price) return
+    const action = () => {
+      if (editing === 'new') setItems(prev => [...prev, { ...draft, id:`custom-${Date.now()}`, price }])
+      else updateItem(editing, { ...draft, price })
+      setEditing(null)
+      setDraft(null)
+    }
+    runIfComboNeedsLoading(action)
+  }
+  const resetAll = () => { setAmountText(''); setCalculatedAmountText(''); setIsCalculating(false); setMode('single'); setCategoryMode('type'); setActiveType('all'); setActivePrice('all'); setTone('rational'); setItems(DEFAULT_ITEMS); setBudget({ enabled:false, type:'living', amounts:{ living:'2000', salary:'6000', savings:'10000' }}); setComboSize('random'); setComboSeed(7); setSingleSeed(11); setShowAllItems(false); setTypeSortDesc(false); localStorage.removeItem(STORAGE_KEY) }
   const exportImage = async () => { if (!resultRef.current) return; const canvas = await html2canvas(resultRef.current, { backgroundColor:'#f9fafb', scale:2 }); const a = document.createElement('a'); a.download = `这笔钱值多少-${cnMoney(amount || 0)}元.png`; a.href = canvas.toDataURL('image/png'); a.click() }
 
   return <main className="page">
@@ -191,13 +253,16 @@ export default function App() {
       <h1>这笔钱值多少？</h1>
       <p>输入一笔金额，把它换算成奶茶、通勤、外卖、电影票和更多日常消费，看看它在生活里大概是什么分量。</p>
       <label className="label">你想衡量多少钱？</label>
-      <div className="moneyInput"><input value={amountText} onChange={e=>setAmountText(cleanNumber(e.target.value))} placeholder="比如 199"/><span>元</span></div>
+      <div className="moneyInput"><input value={amountText} inputMode="decimal" onChange={e=>setAmountText(cleanAmountInput(e.target.value))} onKeyDown={e=>e.key === 'Enter' && startConversion()} placeholder="比如 199"/><span>元</span></div>
+      <p className="convertTip">支持金额范围：0–99999 元。输入后点击“开始换算”，金额越大时组合换算可能稍久。</p>
+      <button className="wide save convertAction" onClick={startConversion} disabled={isCalculating}>{amount ? '重新换算' : '开始换算'}</button>
+      {amountText !== calculatedAmountText && calculatedAmountText && <p className="pendingTip">输入金额已改变，点击“重新换算”后结果才会更新。</p>}
     </section>
 
     <section className="card">
-      <div className="seg two">{[['single','单项等价'],['combo','组合换算']].map(t=><button key={t[0]} className={mode===t[0]?'on':''} onClick={()=>setMode(t[0])}>{t[1]}</button>)}</div>
+      <div className="seg two">{[['single','单项等价'],['combo','组合换算']].map(t=><button key={t[0]} className={mode===t[0]?'on':''} onClick={()=>changeMode(t[0])}>{t[1]}</button>)}</div>
       <p className="hint">{mode === 'single' ? '分别看看这笔钱约等于多少份某个东西。' : '把这笔钱拆成一组更具体的日常消费。'}</p>
-      {mode === 'combo' && <div className="chips light"><span>组合数量</span>{COMBO_OPTIONS.map(o=><button key={o.id} className={comboSize===o.id?'dark':''} onClick={()=>{setComboSize(o.id); setComboSeed(s=>s+1)}}>{o.name}</button>)}</div>}
+      {mode === 'combo' && <div className="chips light"><span>组合数量</span>{COMBO_OPTIONS.map(o=><button key={o.id} className={comboSize===o.id?'dark':''} onClick={()=>changeComboSize(o.id)}>{o.name}</button>)}</div>}
     </section>
 
     <section className="card">
@@ -207,7 +272,7 @@ export default function App() {
       {categoryMode === 'type' && <><div className="chips small">{TYPE_CATEGORIES.map(c=><button key={c.id} className={activeType===c.id?'dark':''} onClick={()=>setActiveType(c.id)}>{c.name}</button>)}</div><button className="sortBtn" onClick={()=>setTypeSortDesc(v=>!v)}>{typeSortDesc?'按低价优先':'按高价优先'}</button></>}
       {categoryMode === 'price' && <div className="chips small">{PRICE_CATEGORIES.map(c=><button key={c.id} className={activePrice===c.id?'dark':''} onClick={()=>setActivePrice(c.id)}>{c.name}</button>)}</div>}
       {categoryMode === 'budget' ? <BudgetPanel budget={budget} setBudget={setBudget} result={budgetResult}/> : <>
-        <div className="tagGrid">{displayedItems.map(item=><div key={item.id} className={`tag ${item.selected?'':'off'}`}><button onClick={()=>updateItem(item.id,{selected:!item.selected})}><span>{item.emoji}</span><b>{item.name}</b><small>{item.price}元 / {item.unit}</small></button><button className="edit" onClick={()=>openEdit(item)}><Edit3 size={12}/> 编辑</button></div>)}</div>
+        <div className="tagGrid">{displayedItems.map(item=><div key={item.id} className={`tag ${item.selected?'':'off'}`}><button onClick={()=>toggleItem(item)}><span>{item.emoji}</span><b>{item.name}</b><small>{item.price}元 / {item.unit}</small></button><button className="edit" onClick={()=>openEdit(item)}><Edit3 size={12}/> 编辑</button></div>)}</div>
         {filteredItems.length > 6 && <button className="wideSoft" onClick={()=>setShowAllItems(v=>!v)}>{showAllItems?'收起标签':`展开更多（还有 ${filteredItems.length - 6} 个）`}</button>}
         <button className="wide dashed" onClick={addItem}><Plus size={16}/> 添加标签</button>
       </>}
@@ -216,7 +281,7 @@ export default function App() {
     {categoryMode !== 'budget' && <BudgetPanel budget={budget} setBudget={setBudget} result={budgetResult}/>}
 
     <div ref={resultRef} className="exportArea"><section className="card result">
-      <div className="row wrap"><h2>换算结果</h2><div><button className="mini" onClick={mode==='single'?()=>setSingleSeed(s=>s+1):()=>setComboSeed(s=>s+1)}><RefreshCw size={14}/> 换一组</button><button className="mini" onClick={exportImage}><Download size={14}/> 导出结果</button></div></div>
+      <div className="row wrap"><h2>换算结果</h2><div><button className="mini" onClick={refreshResults}><RefreshCw size={14}/> 换一组</button><button className="mini" onClick={exportImage}><Download size={14}/> 导出结果</button></div></div>
       <div className="chips small">{TONES.map(t=><button key={t.id} className={tone===t.id?'dark':''} onClick={()=>setTone(t.id)}>{t.name}</button>)}</div>
       {mode === 'single' ? <div className="resultGrid">{singleDisplayResults.length ? singleDisplayResults.map(r=><div key={r.id} className={`resultItem ${r.enough?'':'dim'}`}><div><b>{r.emoji} {r.enough ? `≈ ${cnMoney(r.count)}${r.unit}${r.name}` : `还差 ${cnMoney(r.lack)}元买 1${r.unit}${r.name}`}</b><small>{r.price}元 / {r.unit}</small></div>{r.enough?<Check size={18}/>:<X size={18}/>}</div>) : <Empty/>}</div> : <div className="comboBox">{combo ? <><p>{cnMoney(amount)}元大概可以换成 {combo.targetCount} 个参照：</p><div className="comboTags">{combo.items.map(i=><span key={i.id}>{i.emoji} {i.count}{i.unit}{i.name}</span>)}</div><p>合计 {cnMoney(combo.total)}元{combo.rest > 0 ? `，还剩 ${cnMoney(combo.rest)}元。` : '。'}</p></> : <Empty text="当前选中的可用标签暂时凑不出这个数量的组合。请降低组合数量，或点亮更多单价不超过当前金额的标签。"/>}</div>}
       <div className="summary"><small>总结</small><p>{summary}</p></div>
@@ -224,6 +289,8 @@ export default function App() {
     </section></div>
 
     <footer className="foot"><p>默认价格仅供参考，你可以修改标签的单价、名称和分类，让它更贴合你的生活实际；也可以自定义添加标签。</p><p>这个工具不会替你做决定，只是帮你把金额换成更具体的生活参照。买不买、值不值，最后还是由你决定。</p><div><button onClick={()=>{setItems(DEFAULT_ITEMS);localStorage.removeItem(STORAGE_KEY)}}><RotateCcw size={13}/> 恢复默认标签</button><button className="danger" onClick={resetAll}><Trash2 size={13}/> 全部重置</button></div></footer>
+
+    {isCalculating && <div className="calculatingOverlay" role="status" aria-live="polite"><div className="calculatingDialog"><span className="spinner" aria-hidden="true"/><b>换算中……</b><p>正在整理更贴近金额的日常参照</p></div></div>}
 
     {editing && draft && <div className="modal"><div className="dialog"><div className="row"><h3>{editing==='new'?'添加标签':'编辑标签'}</h3><button onClick={()=>setEditing(null)}><X/></button></div><div className="form"><Field label="Emoji" value={draft.emoji} onChange={v=>setDraft({...draft,emoji:v})}/><Field label="名称" value={draft.name} onChange={v=>setDraft({...draft,name:v})}/><Field label="价格" value={draft.price} onChange={v=>setDraft({...draft,price:cleanNumber(v)})}/><Field label="量词" value={draft.unit} onChange={v=>setDraft({...draft,unit:v})}/></div><p className="label">分类</p><div className="chips small categoryPicker">{TYPE_CATEGORIES.filter(c=>c.id!=='all').map(c=><button key={c.id} className={draft.category===c.id?'dark':''} onClick={()=>setDraft({...draft,category:c.id})}>{c.name}</button>)}</div><button className="wide save" onClick={saveDraft}>保存</button></div></div>}
   </main>
